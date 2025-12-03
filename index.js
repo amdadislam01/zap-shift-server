@@ -67,16 +67,16 @@ async function run() {
 
     // Middle admin before using with database access
     // must be used after verifyFBToken middleware
-    const verifyAdmin = async(req, res, next) => {
+    const verifyAdmin = async (req, res, next) => {
       const email = req.decoded_email;
-      const query = {email}
+      const query = { email };
       const user = await usersCollection.findOne(query);
 
-      if (!user || user.role !== 'admin') {
-        return res.status(403).send({message: 'forbidden Access'})
+      if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "forbidden Access" });
       }
       next();
-    }
+    };
 
     // Users Related API
     app.post("/users", async (req, res) => {
@@ -94,11 +94,11 @@ async function run() {
       if (searchText) {
         // query.displayName = {$regex: searchText, $options: 'i'}
         query.$or = [
-          {displayName: {$regex: searchText, $options: 'i'}},
-          {email: {$regex: searchText, $options: 'i'}},
-        ]
+          { displayName: { $regex: searchText, $options: "i" } },
+          { email: { $regex: searchText, $options: "i" } },
+        ];
       }
-      const cursor = usersCollection.find(query).sort({createAt: -1});
+      const cursor = usersCollection.find(query).sort({ createAt: -1 });
       const result = await cursor.toArray();
       res.send(result);
     });
@@ -111,18 +111,23 @@ async function run() {
       res.send({ role: user?.role || "user" });
     });
     // Users Update API
-    app.patch("/users/:id/role", verifyFBToken, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const roleInfo = req.body;
-      const query = { _id: new ObjectId(id) };
-      const updatedDoc = {
-        $set: {
-          role: roleInfo.role,
-        },
-      };
-      const result = await usersCollection.updateOne(query, updatedDoc);
-      res.send(result);
-    });
+    app.patch(
+      "/users/:id/role",
+      verifyFBToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const roleInfo = req.body;
+        const query = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            role: roleInfo.role,
+          },
+        };
+        const result = await usersCollection.updateOne(query, updatedDoc);
+        res.send(result);
+      }
+    );
 
     // Parcel API
     app.get("/parcels", async (req, res) => {
@@ -243,15 +248,28 @@ async function run() {
     // payment checked
     app.patch("/payment-success", async (req, res) => {
       const sessionId = req.query.session_id;
-      const trackingId = generateTrackingId();
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      console.log("session retrieve", session);
+      // console.log("session retrieve", session);
+      const transactionId = session.payment_intent;
+      const query = { transactionId: transactionId };
+      const paymentExist = await paymentCollection.findOne(query);
+      if (paymentExist) {
+        return res.send({
+          message: "already exists",
+          transactionId,
+          trackingId: paymentExist.trackingId,
+        });
+      }
+
+      const trackingId = generateTrackingId();
+
       if (session.payment_status === "paid") {
         const id = session.metadata.parcelId;
         const query = { _id: new ObjectId(id) };
         const update = {
           $set: {
             paymentStatus: "paid",
+            deliveryStatus: 'pending-pickup',
             trackingId: trackingId,
           },
         };
